@@ -247,13 +247,57 @@ class CryptoSizerApp(ctk.CTk):
         trade.grid(row=0, column=0, sticky="ew")
         trade.grid_columnconfigure((0, 1), weight=1)
         
-        self._entry(trade, "Symbol", "symbol", "", 1, 0)
-        self._entry(trade, "Leverage", "leverage", "×", 1, 1)
-        self._segmented(trade, "Direction", "direction", [Direction.LONG.value, Direction.SHORT.value], 2, 0)
-        self._segmented(trade, "Margin Mode", "margin_mode", [MarginMode.ISOLATED.value, MarginMode.CROSS.value], 2, 1)
+        # Watchlist Row
+        watch_container = ctk.CTkFrame(trade, fg_color="transparent")
+        watch_container.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
+        
+        tokens = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "XAUUSDT", "QQQUSDT"]
+        for idx, token in enumerate(tokens):
+            btn = ctk.CTkButton(
+                watch_container, 
+                text=token, 
+                width=55, 
+                height=26, 
+                fg_color=COLORS["panel_alt"], 
+                text_color=COLORS["text_primary"], 
+                font=FONTS["label"], 
+                hover_color=COLORS["accent"],
+                command=lambda t=token: self._select_watchlist(t)
+            )
+            btn.grid(row=0, column=idx, padx=(0, 5))
+        
+        self._entry(trade, "Symbol", "symbol", "", 2, 0)
+        
+        # Leverage Component with Slider
+        lev_frame = ctk.CTkFrame(trade, fg_color="transparent")
+        lev_frame.grid(row=2, column=1, sticky="ew", padx=12, pady=6)
+        lev_frame.grid_columnconfigure(0, weight=1)
+        
+        ctk.CTkLabel(lev_frame, text="Leverage", font=FONTS["label"], text_color=COLORS["text_muted"], anchor="w").grid(row=0, column=0, sticky="ew", pady=(0, 2))
+        
+        lev_input_frame = ctk.CTkFrame(lev_frame, fg_color="transparent")
+        lev_input_frame.grid(row=1, column=0, sticky="ew")
+        lev_input_frame.grid_columnconfigure(0, weight=1)
+        
+        lev_entry = ctk.CTkEntry(lev_input_frame, textvariable=self.vars["leverage"], height=34, fg_color=COLORS["panel_alt"], border_width=0, text_color=COLORS["text_primary"], font=FONTS["input"])
+        lev_entry.grid(row=0, column=0, sticky="ew")
+        ctk.CTkLabel(lev_input_frame, text="×", font=FONTS["label"], text_color=COLORS["text_muted"]).place(relx=0.96, rely=0.5, anchor="e")
+        
+        self.leverage_slider = ctk.CTkSlider(lev_frame, from_=1, to=125, number_of_steps=124, command=self._on_leverage_slider_change, fg_color=COLORS["panel_alt"], progress_color=COLORS["accent"], button_color=COLORS["accent"])
+        self.leverage_slider.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        
+        # Bidirectional Sync for Leverage
+        self.vars["leverage"].trace_add("write", lambda *args: self._on_leverage_entry_change())
+        try:
+            self.leverage_slider.set(float(self.vars["leverage"].get()))
+        except ValueError:
+            self.leverage_slider.set(1.0)
+            
+        self._segmented(trade, "Direction", "direction", [Direction.LONG.value, Direction.SHORT.value], 3, 0)
+        self._segmented(trade, "Margin Mode", "margin_mode", [MarginMode.ISOLATED.value, MarginMode.CROSS.value], 3, 1)
         
         entry_frame = ctk.CTkFrame(trade, fg_color="transparent")
-        entry_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=6)
+        entry_frame.grid(row=4, column=0, sticky="ew", padx=12, pady=6)
         entry_frame.grid_columnconfigure(0, weight=1)
         
         LabeledEntry(entry_frame, "Entry Price", self.vars["entry_price"], suffix="$", update_callback=self._schedule_calc).grid(row=0, column=0, sticky="ew")
@@ -261,7 +305,7 @@ class CryptoSizerApp(ctk.CTk):
         ctk.CTkButton(
             entry_frame, 
             text="GET LIVE", 
-            command=self.fetch_bybit_price, 
+            command=self.fetch_binance_price, 
             width=60, 
             height=28, 
             fg_color=COLORS["accent"], 
@@ -269,9 +313,9 @@ class CryptoSizerApp(ctk.CTk):
             font=FONTS["button"]
         ).grid(row=0, column=1, padx=(6, 0), sticky="s", pady=(0, 2))
 
-        self._entry(trade, "Stop Loss", "stop_loss_price", "$", 3, 1)
-        self._entry(trade, "Take Profit", "take_profit_price", "$", 4, 0)
-        self._entry(trade, "Max Position Size", "max_position_notional", "$", 4, 1)
+        self._entry(trade, "Stop Loss", "stop_loss_price", "$", 4, 1)
+        self._entry(trade, "Take Profit", "take_profit_price", "$", 5, 0)
+        self._entry(trade, "Max Position Size", "max_position_notional", "$", 5, 1)
 
         btn_frame = ctk.CTkFrame(scroll, fg_color="transparent")
         btn_frame.grid(row=1, column=0, sticky="ew", pady=(16, 0))
@@ -335,35 +379,84 @@ class CryptoSizerApp(ctk.CTk):
         )
         seg.grid(row=row + 1, column=column, sticky="ew", padx=12, pady=(0, 6))
 
+    def _select_watchlist(self, token: str) -> None:
+        self.vars["symbol"].set(token)
+        self.fetch_binance_price()
+
+    def _on_leverage_slider_change(self, value: float) -> None:
+        current_val = str(int(value))
+        # Prevent circular logic
+        if self.vars["leverage"].get() != current_val:
+            self.vars["leverage"].set(current_val)
+
+    def _on_leverage_entry_change(self) -> None:
+        try:
+            val = float(self.vars["leverage"].get())
+            if 1 <= val <= 125:
+                if int(self.leverage_slider.get()) != int(val):
+                    self.leverage_slider.set(val)
+        except ValueError:
+            pass
+        self._schedule_calc()
+
     def _schedule_calc(self) -> None:
         if hasattr(self, '_calc_timer'):
             self.after_cancel(self._calc_timer)
         self._calc_timer = self.after(300, self.calculate)
 
-    def fetch_bybit_price(self) -> None:
+    def fetch_binance_price(self) -> None:
         symbol = self.vars["symbol"].get().strip().upper()
         if not symbol:
             self._set_warnings(["Cannot fetch price: Symbol is empty."])
             return
 
-        self.status_var.set("FETCHING BYBIT PRICE...")
+        self.status_var.set("FETCHING BINANCE PRICE...")
 
         def api_task():
-            try:
-                url = f"https://api.bybit.com/v5/market/tickers?category=linear&symbol={symbol}"
-                response = requests.get(url, timeout=5).json()
-                
-                if response.get("retCode") == 0 and response.get("result", {}).get("list"):
-                    last_price = response["result"]["list"][0]["lastPrice"]
-                    self.after(0, lambda: self._update_entry_price(last_price))
-                else:
-                    msg = response.get("retMsg", "Unknown API error")
-                    self.after(0, lambda: self._set_warnings([f"Bybit API Error: {msg}"]))
-                    self.after(0, lambda: self.status_var.set("API ERROR"))
+            # PRO FEATURE: Endpoint Rotation to bypass ISP throttling and DNS blocks
+            endpoints = [
+                f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={symbol}",
+                f"https://fapi1.binance.com/fapi/v1/ticker/price?symbol={symbol}",
+                f"https://fapi2.binance.com/fapi/v1/ticker/price?symbol={symbol}",
+                f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}",
+                f"https://api1.binance.com/api/v3/ticker/price?symbol={symbol}",
+                f"https://api2.binance.com/api/v3/ticker/price?symbol={symbol}"
+            ]
             
-            except Exception as e:
-                self.after(0, lambda: self._set_warnings([f"Network Error: {str(e)}"]))
-                self.after(0, lambda: self.status_var.set("NETWORK ERROR"))
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            
+            last_error = ""
+            for url in endpoints:
+                try:
+                    # Increased timeout to 7 seconds to account for ISP Deep Packet Inspection lag
+                    response = requests.get(url, headers=headers, timeout=7)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if "price" in data:
+                            self.after(0, lambda p=data["price"]: self._update_entry_price(p))
+                            return  # Success, exit the loop
+                    else:
+                        last_error = f"HTTP {response.status_code}"
+                        
+                except requests.exceptions.Timeout:
+                    last_error = "Connection Timed Out"
+                    continue  # Fail silently and try the next backup URL
+                except Exception as e:
+                    last_error = str(e)
+                    continue  # Try next URL
+                    
+            # If the loop finishes and ALL endpoints failed
+            error_msg = [
+                "NETWORK CENSORSHIP DETECTED:",
+                "All Binance API endpoints failed or timed out.",
+                f"Last Error: {last_error}",
+                "Fix: Your ISP is blocking crypto APIs. Turn on a VPN."
+            ]
+            self.after(0, lambda: self._set_warnings(error_msg))
+            self.after(0, lambda: self.status_var.set("NETWORK BLOCKED"))
 
         threading.Thread(target=api_task, daemon=True).start()
 
@@ -503,3 +596,4 @@ def stringify(value: Any) -> str:
     if isinstance(value, list):
         return " | ".join(str(item) for item in value)
     return str(value)
+```eof

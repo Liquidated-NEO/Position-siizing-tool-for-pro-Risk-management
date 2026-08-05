@@ -31,17 +31,21 @@ class PositionCalculator:
         validate_trade(adjusted_trade)
 
         risk_limit_name, risk_amount = risk_budget(account)
+        
+        # Entries/Stops are usually Taker (Market). Targets are Maker (Limit).
         open_fee_rate = percent_to_rate(adjusted_trade.taker_fee_percent)
-        close_fee_rate = percent_to_rate(adjusted_trade.taker_fee_percent)
+        close_fee_rate_stop = percent_to_rate(adjusted_trade.taker_fee_percent)
+        close_fee_rate_target = percent_to_rate(adjusted_trade.maker_fee_percent)
         slippage_rate = percent_to_rate(adjusted_trade.slippage_percent)
 
         stop_distance = abs(adjusted_trade.entry_price - adjusted_trade.stop_loss_price)
         target_distance = abs(adjusted_trade.take_profit_price - adjusted_trade.entry_price)
+        
         risk_per_unit = (
             stop_distance
-            + adjusted_trade.entry_price * open_fee_rate
-            + adjusted_trade.stop_loss_price * close_fee_rate
-            + (adjusted_trade.entry_price + adjusted_trade.stop_loss_price) * slippage_rate
+            + (adjusted_trade.entry_price * open_fee_rate)
+            + (adjusted_trade.stop_loss_price * close_fee_rate_stop)
+            + ((adjusted_trade.entry_price + adjusted_trade.stop_loss_price) * slippage_rate)
         ) * adjusted_trade.contract_multiplier
 
         raw_position_size = risk_amount / risk_per_unit
@@ -65,26 +69,22 @@ class PositionCalculator:
         required_margin = position_notional / adjusted_trade.leverage
 
         open_fee = position_size * adjusted_trade.entry_price * adjusted_trade.contract_multiplier * open_fee_rate
-        close_fee_at_stop = position_size * adjusted_trade.stop_loss_price * adjusted_trade.contract_multiplier * close_fee_rate
-        close_fee_at_target = position_size * adjusted_trade.take_profit_price * adjusted_trade.contract_multiplier * close_fee_rate
+        close_fee_at_stop = position_size * adjusted_trade.stop_loss_price * adjusted_trade.contract_multiplier * close_fee_rate_stop
+        close_fee_at_target = position_size * adjusted_trade.take_profit_price * adjusted_trade.contract_multiplier * close_fee_rate_target
+        
         slippage_cost_at_stop = (
-            position_size
-            * (adjusted_trade.entry_price + adjusted_trade.stop_loss_price)
-            * adjusted_trade.contract_multiplier
-            * slippage_rate
+            position_size * (adjusted_trade.entry_price + adjusted_trade.stop_loss_price) * adjusted_trade.contract_multiplier * slippage_rate
         )
-        slippage_cost_at_target = (
-            position_size
-            * (adjusted_trade.entry_price + adjusted_trade.take_profit_price)
-            * adjusted_trade.contract_multiplier
-            * slippage_rate
-        )
+        slippage_cost_at_target = Decimal("0")
 
         gross_loss = position_size * stop_distance * adjusted_trade.contract_multiplier
         max_loss = gross_loss + open_fee + close_fee_at_stop + slippage_cost_at_stop
         gross_profit = position_size * target_distance * adjusted_trade.contract_multiplier
         net_profit = gross_profit - open_fee - close_fee_at_target - slippage_cost_at_target
         risk_reward = Decimal("0") if max_loss == 0 else net_profit / max_loss
+
+        if adjusted_trade.margin_mode.upper() == "CROSS":
+            warnings.append("Liquidation estimate is for ISOLATED margin. Cross margin liquidation depends on total account balance.")
 
         liquidation_price = estimate_liquidation_price(
             direction=adjusted_trade.direction,

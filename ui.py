@@ -596,4 +596,3 @@ def stringify(value: Any) -> str:
     if isinstance(value, list):
         return " | ".join(str(item) for item in value)
     return str(value)
-```eof

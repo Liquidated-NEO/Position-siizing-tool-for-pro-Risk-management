@@ -1,4 +1,4 @@
-# Crypto Futures Position Sizer
+# Crypto Futures Position Sizing tool
 
 A professional desktop position sizing tool for crypto futures traders.
 

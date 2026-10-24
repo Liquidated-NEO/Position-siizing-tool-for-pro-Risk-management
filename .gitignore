@@ -8,3 +8,4 @@ env/
 settings.json
 trades.csv
 *.log
+__pycache__
